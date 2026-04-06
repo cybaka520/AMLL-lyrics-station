@@ -1,4 +1,4 @@
-# AMLL-lyrics-station
+# AMLLHub
 新一代AMLL歌词站，与AMLL歌词生态协作
 
 [AMLL TTML 歌词站](https://amlldb.bikonoo.com) 的重构版本
