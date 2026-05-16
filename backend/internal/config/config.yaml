@@ -1,0 +1,19 @@
+git:
+  repo_url: ""
+  local_path: "./lyrics"
+database:
+  host: "127.0.0.1"
+  port: 5432
+  name: "n"
+  user: "u"
+  password: ""
+sync:
+  rate_limit: 5
+log:
+  level: "info"
+  path: "logs/app.log"
+  max_size: 50
+  max_backups: 10
+  max_age: 30
+api:
+  key: "change-me"
