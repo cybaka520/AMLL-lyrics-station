@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -48,7 +49,8 @@ func main() {
 	api := r.Group("/api/v1", middleware.Auth(cfg.API.Key))
 	h := handler.New(svc, time.Duration(cfg.Sync.RateLimit)*time.Minute)
 	api.POST("/synchronous-lyrics", h.Sync)
-	if err := r.Run(); err != nil {
+	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
 	}
 }

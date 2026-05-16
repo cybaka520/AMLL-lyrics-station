@@ -37,6 +37,10 @@ type Config struct {
 	API struct {
 		Key string `yaml:"key"`
 	} `yaml:"api"`
+	Server struct {
+		Host string `yaml:"host"`
+		Port int    `yaml:"port"`
+	} `yaml:"server"`
 }
 
 func Default() *Config {
@@ -49,6 +53,8 @@ func Default() *Config {
 	cfg.Log.MaxBackups = 10
 	cfg.Log.MaxAge = 30
 	cfg.API.Key = "change-me"
+	cfg.Server.Host = "0.0.0.0"
+	cfg.Server.Port = 8080
 	return cfg
 }
 
@@ -57,8 +63,17 @@ func appRoot() string {
 		return root
 	}
 	if wd, err := os.Getwd(); err == nil {
-		if base := filepath.Base(wd); base != "go-build" && base != "tmp" {
-			return wd
+		clean := filepath.Clean(wd)
+		if base := filepath.Base(clean); base == "server" {
+			if parent := filepath.Dir(clean); filepath.Base(parent) == "cmd" {
+				return filepath.Dir(parent)
+			}
+		}
+		if base := filepath.Base(clean); base == "backend" {
+			return clean
+		}
+		if base := filepath.Base(clean); base != "go-build" && base != "tmp" {
+			return clean
 		}
 	}
 	if exe, err := os.Executable(); err == nil {
@@ -73,7 +88,12 @@ func appRoot() string {
 func Load() (*Config, error) {
 	path := os.Getenv("CONFIG_PATH")
 	if path == "" {
-		path = filepath.Join("backend", "internal", "config", "config.yaml")
+		root := appRoot()
+		if filepath.Base(root) == "backend" {
+			path = filepath.Join(root, "internal", "config", "config.yaml")
+		} else {
+			path = filepath.Join(root, "backend", "internal", "config", "config.yaml")
+		}
 	}
 	cfg := Default()
 	data, err := os.ReadFile(path)

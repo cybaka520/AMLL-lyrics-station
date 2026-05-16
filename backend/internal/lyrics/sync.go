@@ -22,6 +22,13 @@ type Service struct {
 	Logger  *zap.Logger
 }
 
+type SyncResult struct {
+	Files   int
+	Deleted int
+	Started time.Time
+	Ended   time.Time
+}
+
 type LyricsError struct {
 	Stage string
 	Err   error
