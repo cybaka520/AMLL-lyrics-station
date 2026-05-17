@@ -1,6 +1,6 @@
 git:
-  repo_url: ""
-  local_path: "./lyrics"
+  repo_url: "https://github.com/amll-dev/amll-ttml-db.git"
+  local_path: ""
 database:
   host: "127.0.0.1"
   port: 5432

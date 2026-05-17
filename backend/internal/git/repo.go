@@ -1,123 +1,117 @@
 package git
 
 import (
-	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
-
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"strings"
 )
 
-func EnsureRepo(repoURL, localPath string) (*gogit.Repository, error) {
+func EnsureRepo(repoURL, localPath string) (string, error) {
 	if _, err := os.Stat(localPath); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
-			return nil, err
+		if err := os.MkdirAll(localPath, 0o755); err != nil {
+			return "", err
 		}
-		return gogit.PlainClone(localPath, false, &gogit.CloneOptions{URL: repoURL, Progress: nil})
-	}
-	if _, err := gogit.PlainOpen(localPath); err != nil {
-		if _, statErr := os.Stat(filepath.Join(localPath, ".git")); os.IsNotExist(statErr) {
-			if err := os.RemoveAll(localPath); err != nil {
-				return nil, err
-			}
-			return gogit.PlainClone(localPath, false, &gogit.CloneOptions{URL: repoURL, Progress: nil})
+		if err := runGit("clone", repoURL, localPath); err != nil {
+			return "", err
 		}
-		return nil, err
+		return HeadCommit(localPath)
 	}
-	return gogit.PlainOpen(localPath)
+	if _, err := os.Stat(filepath.Join(localPath, ".git")); os.IsNotExist(err) {
+		if err := os.RemoveAll(localPath); err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(localPath, 0o755); err != nil {
+			return "", err
+		}
+		if err := runGit("clone", repoURL, localPath); err != nil {
+			return "", err
+		}
+		return HeadCommit(localPath)
+	}
+	return HeadCommit(localPath)
 }
 
 func Pull(localPath string) (string, string, error) {
-	repo, err := gogit.PlainOpen(localPath)
+	oldCommit, err := HeadCommit(localPath)
 	if err != nil {
 		return "", "", err
 	}
-	head, err := repo.Head()
+	if err := runGitC(localPath, "pull", "--ff-only", "origin", "HEAD"); err != nil {
+		if isAlreadyUpToDate(err) {
+			return oldCommit, oldCommit, nil
+		}
+		return "", "", err
+	}
+	newCommit, err := HeadCommit(localPath)
 	if err != nil {
 		return "", "", err
 	}
-	oldCommit := head.Hash().String()
-	wt, err := repo.Worktree()
-	if err != nil {
-		return "", "", err
-	}
-	if err := wt.Pull(&gogit.PullOptions{RemoteName: "origin", Auth: &http.BasicAuth{}}); err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
-		return "", "", err
-	}
-	head, err = repo.Head()
-	if err != nil {
-		return "", "", err
-	}
-	return oldCommit, head.Hash().String(), nil
+	return oldCommit, newCommit, nil
 }
 
 func Diff(localPath, oldCommit, newCommit string) ([]string, error) {
-	repo, err := gogit.PlainOpen(localPath)
+	out, err := runGitOutput("-C", localPath, "diff", "--name-only", oldCommit, newCommit)
 	if err != nil {
 		return nil, err
 	}
-	oldObj, err := repo.CommitObject(plumbing.NewHash(oldCommit))
-	if err != nil {
-		return nil, err
-	}
-	newObj, err := repo.CommitObject(plumbing.NewHash(newCommit))
-	if err != nil {
-		return nil, err
-	}
-	oldTree, err := oldObj.Tree()
-	if err != nil {
-		return nil, err
-	}
-	newTree, err := newObj.Tree()
-	if err != nil {
-		return nil, err
-	}
-	changes, err := object.DiffTree(oldTree, newTree)
-	if err != nil {
-		return nil, err
-	}
-	files := make([]string, 0, len(changes))
-	for _, c := range changes {
-		if c.From.Name != "" {
-			files = append(files, c.From.Name)
-		} else {
-			files = append(files, c.To.Name)
-		}
-	}
-	return files, nil
+	return splitLines(out), nil
 }
 
 func HeadCommit(localPath string) (string, error) {
-	repo, err := gogit.PlainOpen(localPath)
+	out, err := runGitOutput("-C", localPath, "rev-parse", "HEAD")
 	if err != nil {
 		return "", err
 	}
-	head, err := repo.Head()
-	if err != nil {
-		return "", err
-	}
-	return head.Hash().String(), nil
+	return strings.TrimSpace(out), nil
 }
 
 func FileExistsAtCommit(localPath, commit, file string) (bool, error) {
-	repo, err := gogit.PlainOpen(localPath)
+	out, err := runGitOutput("-C", localPath, "ls-tree", "-r", "--name-only", commit, "--", file)
 	if err != nil {
 		return false, err
 	}
-	obj, err := repo.CommitObject(plumbing.NewHash(commit))
+	return strings.TrimSpace(out) == file, nil
+}
+
+func runGit(args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func runGitC(localPath string, args ...string) error {
+	fullArgs := append([]string{"-C", localPath}, args...)
+	return runGit(fullArgs...)
+}
+
+func runGitOutput(args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if err != nil {
-		return false, err
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
 	}
-	tree, err := obj.Tree()
-	if err != nil {
-		return false, err
+	return stdout.String(), nil
+}
+
+func splitLines(s string) []string {
+	lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(s), "\r\n", "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return nil
 	}
-	_, err = tree.File(file)
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return lines
+}
+
+func isAlreadyUpToDate(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "already up to date")
 }

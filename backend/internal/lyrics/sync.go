@@ -2,12 +2,14 @@ package lyrics
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
 	"amllhub/backend/internal/db"
 	gitrepo "amllhub/backend/internal/git"
 	"amllhub/backend/internal/model"
+
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"go.uber.org/zap"
@@ -45,15 +47,27 @@ func (s *Service) Start() error {
 	if _, err := gitrepo.EnsureRepo(s.RepoURL, s.Root); err != nil {
 		return s.fail("git", err, started, 0, 0)
 	}
+	if _, err := os.Stat(s.Root); err != nil {
+		return s.fail("fs", err, started, 0, 0)
+	}
+	files, err := Scan(s.Root)
+	if err != nil {
+		return s.fail("fs", err, started, 0, 0)
+	}
+	if s.Logger != nil {
+		s.Logger.Info("扫描完成", zap.Int("scanned_files", len(files)))
+	}
 	oldCommit, newCommit, err := gitrepo.Pull(s.Root)
 	if err != nil {
 		return s.fail("git", err, started, 0, 0)
 	}
 	if oldCommit == newCommit {
 		if s.Logger != nil {
-			s.Logger.Info("同步完成", zap.Time("started_at", started), zap.Time("ended_at", time.Now().UTC()), zap.Int64("duration_ms", 0), zap.Int("files", 0), zap.Int("deleted", 0), zap.String("reason", "no_changes"))
+			s.Logger.Info("同步完成", zap.Time("started_at", started), zap.Time("ended_at", time.Now().UTC()), zap.Int64("duration_ms", 0), zap.Int("scanned_files", len(files)), zap.Int("files", len(files)), zap.Int("deleted", 0), zap.String("reason", "no_changes"))
 		}
-		return nil
+		return db.WithTx(s.DB, func(tx *sqlx.Tx) error {
+			return upsertBatch(tx, files)
+		})
 	}
 	changes, err := gitrepo.Diff(s.Root, oldCommit, newCommit)
 	if err != nil {
@@ -64,9 +78,11 @@ func (s *Service) Start() error {
 	}
 	if len(changes) == 0 {
 		if s.Logger != nil {
-			s.Logger.Info("同步完成", zap.Time("started_at", started), zap.Time("ended_at", time.Now().UTC()), zap.Int64("duration_ms", time.Since(started).Milliseconds()), zap.Int("files", 0), zap.Int("deleted", 0), zap.String("reason", "empty_diff"))
+			s.Logger.Info("同步完成", zap.Time("started_at", started), zap.Time("ended_at", time.Now().UTC()), zap.Int64("duration_ms", time.Since(started).Milliseconds()), zap.Int("scanned_files", len(files)), zap.Int("files", len(files)), zap.Int("deleted", 0), zap.String("reason", "empty_diff"))
 		}
-		return nil
+		return db.WithTx(s.DB, func(tx *sqlx.Tx) error {
+			return upsertBatch(tx, files)
+		})
 	}
 	var result SyncResult
 	err = db.WithTx(s.DB, func(tx *sqlx.Tx) error {
@@ -104,7 +120,7 @@ func (s *Service) Start() error {
 		return s.fail("db", err, result.Started, result.Files, result.Deleted)
 	}
 	if s.Logger != nil {
-		s.Logger.Info("同步完成", zap.Time("started_at", result.Started), zap.Time("ended_at", result.Ended), zap.Int64("duration_ms", result.Ended.Sub(result.Started).Milliseconds()), zap.Int("files", result.Files), zap.Int("deleted", result.Deleted))
+		s.Logger.Info("同步完成", zap.Time("started_at", result.Started), zap.Time("ended_at", result.Ended), zap.Int64("duration_ms", result.Ended.Sub(result.Started).Milliseconds()), zap.Int("scanned_files", len(files)), zap.Int("files", result.Files), zap.Int("deleted", result.Deleted))
 	}
 	return nil
 }

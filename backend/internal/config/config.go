@@ -128,7 +128,7 @@ func decryptPassword(cfg *Config) error {
 	}
 	key := os.Getenv("DB_PASSWORD_KEY")
 	if key == "" {
-		return errors.New("DB_PASSWORD_KEY is required when database password is encrypted")
+		return nil
 	}
 	decodedKey, err := base64.StdEncoding.DecodeString(key)
 	if err != nil {
