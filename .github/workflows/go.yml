@@ -1,0 +1,44 @@
+name: 后端构建
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/go.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'backend/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 配置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: backend/go.sum
+
+      - name: 下载依赖
+        run: go mod download
+
+      - name: 构建
+        run: go build -v ./cmd/server
+
+      - name: 测试
+        run: go test -v ./...
+
+      - name: 代码检查
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: backend
+          args: --timeout=5m
