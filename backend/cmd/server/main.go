@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	"amllhub/backend/internal/api/handler"
@@ -11,6 +13,7 @@ import (
 	"amllhub/backend/internal/db"
 	"amllhub/backend/internal/logger"
 	"amllhub/backend/internal/lyrics"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -34,6 +37,8 @@ func main() {
 		log.Fatal(err)
 	}
 	svc := &lyrics.Service{DB: dbx, RepoURL: cfg.Git.RepoURL, Root: cfg.Git.LocalPath, Logger: logx}
+	bootstrapLyrics(svc, cfg.Git.LocalPath, logx)
+
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(func(c *gin.Context) {
@@ -53,4 +58,27 @@ func main() {
 	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func bootstrapLyrics(svc *lyrics.Service, root string, logx *zap.Logger) {
+	if repoExists(root) {
+		go func() {
+			if err := svc.Start(); err != nil {
+				logx.Error("启动歌词同步失败", zap.Error(err))
+			}
+		}()
+		return
+	}
+	go func() {
+		if err := svc.Start(); err != nil {
+			logx.Error("启动歌词同步失败", zap.Error(err))
+		}
+	}()
+}
+
+func repoExists(root string) bool {
+	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
+		return true
+	}
+	return false
 }
