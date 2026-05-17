@@ -27,6 +27,12 @@ type Config struct {
 	Sync struct {
 		RateLimit int `yaml:"rate_limit"`
 	} `yaml:"sync"`
+	MeiliSearch struct {
+		Host      string `yaml:"host"`
+		APIKey    string `yaml:"api_key"`
+		IndexName string `yaml:"index_name"`
+		BatchSize int    `yaml:"batch_size"`
+	} `yaml:"meilisearch"`
 	Log struct {
 		Level      string `yaml:"level"`
 		Path       string `yaml:"path"`
@@ -47,6 +53,9 @@ func Default() *Config {
 	cfg := &Config{}
 	cfg.Git.LocalPath = filepath.Join(appRoot(), "lyrics")
 	cfg.Sync.RateLimit = 5
+	cfg.MeiliSearch.Host = "http://127.0.0.1:7700"
+	cfg.MeiliSearch.IndexName = "lyrics"
+	cfg.MeiliSearch.BatchSize = 500
 	cfg.Log.Level = "info"
 	cfg.Log.Path = filepath.Join(appRoot(), "logs", "app.log")
 	cfg.Log.MaxSize = 50
