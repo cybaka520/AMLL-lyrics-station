@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"amllhub/backend/internal/db"
 	"amllhub/backend/internal/logger"
 	"amllhub/backend/internal/lyrics"
+	"amllhub/backend/internal/search"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -38,6 +40,13 @@ func main() {
 	}
 	svc := &lyrics.Service{DB: dbx, RepoURL: cfg.Git.RepoURL, Root: cfg.Git.LocalPath, Logger: logx}
 	bootstrapLyrics(svc, cfg.Git.LocalPath, logx)
+	searchClient := search.NewClient(cfg.MeiliSearch.Host, cfg.MeiliSearch.APIKey, cfg.MeiliSearch.IndexName, cfg.MeiliSearch.BatchSize)
+	searchOrch := search.NewOrchestrator(searchClient, search.Config{IndexPath: filepath.Join(cfg.Git.LocalPath, "raw-lyrics-index.jsonl"), LyricsDir: filepath.Join(cfg.Git.LocalPath, "raw-lyrics"), BatchSize: cfg.MeiliSearch.BatchSize, Watcher: true}, zapAdapter{logx})
+	go func() {
+		if err := searchOrch.Start(context.Background()); err != nil {
+			logx.Error("search orchestrator failed", zap.Error(err))
+		}
+	}()
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -53,7 +62,10 @@ func main() {
 	})
 	api := r.Group("/api/v1", middleware.Auth(cfg.API.Key))
 	h := handler.New(svc, time.Duration(cfg.Sync.RateLimit)*time.Minute)
+	sh := handler.NewSearch(searchOrch.Search, searchOrch.Sync, time.Duration(cfg.Sync.RateLimit)*time.Minute)
 	api.POST("/synchronous-lyrics", h.Sync)
+	api.GET("/search", sh.Search)
+	api.POST("/search/rebuild", sh.Rebuild)
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
@@ -82,3 +94,9 @@ func repoExists(root string) bool {
 	}
 	return false
 }
+
+type zapAdapter struct{ l *zap.Logger }
+
+func (z zapAdapter) Info(msg string, fields ...zap.Field)  { z.l.Info(msg, fields...) }
+func (z zapAdapter) Warn(msg string, fields ...zap.Field)  { z.l.Warn(msg, fields...) }
+func (z zapAdapter) Error(msg string, fields ...zap.Field) { z.l.Error(msg, fields...) }

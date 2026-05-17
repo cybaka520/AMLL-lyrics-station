@@ -4,11 +4,16 @@ git:
 database:
   host: "127.0.0.1"
   port: 5432
-  name: "n"
-  user: "u"
-  password: ""
+  name: "Arknights:-Endfield"
+  user: "114514"
+  password: "114514"
 sync:
   rate_limit: 5
+meilisearch:
+  host: "http://127.0.0.1:7700"
+  api_key: ""
+  index_name: "lyrics"
+  batch_size: 500
 log:
   level: "info"
   path: "logs/app.log"
